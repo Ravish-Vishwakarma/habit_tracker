@@ -1,16 +1,4 @@
-# habit_tracker
+A Simple Local Habit Tracker App
+<img width="1316" height="921" alt="image" src="https://github.com/user-attachments/assets/fe0ca31d-6985-4cb9-8c69-b5b8c518d3a7" />
 
-A new Flutter project.
-
-## Getting Started
-
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+**Database Location**: In the Documents Folder (_`C:\Users\<USER NAME>\Documents\habit_tracker.db`_)
