@@ -27,11 +27,24 @@ class DatabaseHelper {
 
   Future _onCreate(Database db, int version) async {
     await db.execute('''
-      CREATE TABLE habits (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        habit TEXT NOT NULL UNIQUE
-      )
-    ''');
+    CREATE TABLE habits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      habit TEXT NOT NULL UNIQUE,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  ''');
+
+    await db.execute('''
+    CREATE TABLE habits_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      habit_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      status INTEGER NOT NULL DEFAULT 0,
+
+      FOREIGN KEY (habit_id) REFERENCES habits(id),
+      UNIQUE (habit_id, date)
+    )
+  ''');
   }
 
   Future<void> createHabitTable(int month, int year) async {
