@@ -89,7 +89,7 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Ravish Vishwakarma" "\0"
+            VALUE "CompanyName", "com.ravish.habit" "\0"
             VALUE "FileDescription", "Local habit tracker with monthly routines and yearly activity heatmaps" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "Habit Tracker" "\0"

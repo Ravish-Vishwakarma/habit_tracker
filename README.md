@@ -67,7 +67,7 @@ The release executable is created under `build/windows/x64/runner/Release/`.
 
 ## Data Storage
 
-Habit definitions, month-specific habit sets, and completion records are stored locally in SQLite. The database is saved as `habit_tracker.db` in the operating system's application-support directory. No account or cloud service is required.
+Habit definitions, month-specific habit sets, and completion records are stored locally in SQLite. On Windows, the database is saved at `%APPDATA%\com.ravish.habit\Habit Tracker\habit_tracker.db`. No account or cloud service is required.
 
 Backups are complete SQLite database files (`.db`). Keep exported backups somewhere safe; importing one replaces all current habits and completion history.
 
