@@ -108,155 +108,162 @@ class _HabitTrackerState extends State<HabitTracker> with WindowListener {
       body: Container(
         color: const Color.fromARGB(255, 63, 77, 67),
         child: Padding(
-          padding: const EdgeInsets.all(15.0),
+          padding: const EdgeInsets.fromLTRB(15, 0, 15, 15),
           child: Column(
             children: [
-              Row(
-                children: [
-                  Row(
-                    children: [
-                      IconButton(
-                        tooltip: "Jump To Today",
-                        onPressed: () {
-                          setState(() {
-                            currentmonth = DateTime.now().month;
-                            currentyear = DateTime.now().year;
-                          });
-                          loadHabitData(currentmonth, currentyear);
-                        },
-                        icon: Icon(Icons.today, color: Color(0xFFDBDBDB)),
-                      ),
-                      IconButton(
-                        tooltip: _showHeatmap
-                            ? "Back to Habits"
-                            : "Habit Heatmap",
-                        onPressed: () {
-                          setState(() {
-                            _showHeatmap = !_showHeatmap;
-                          });
-                        },
-                        icon: Icon(
-                          _showHeatmap ? Icons.close : Icons.grid_on,
-                          color: const Color(0xFFDBDBDB),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: DragToMoveArea(child: SizedBox.expand()),
-                    ),
-                  ),
-                  if (!_showHeatmap)
+              SizedBox(
+                height: 48,
+                width: double.infinity,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        IconButton(
-                          onPressed: () {
-                            getpreviousmonth();
-                          },
-                          icon: Icon(
-                            Icons.arrow_back_ios,
-                            color: Color(0xFFDBDBDB),
-                          ),
-                        ),
-                        Text(
-                          "${months[currentmonth - 1].toUpperCase()} $currentyear",
-                          style: GoogleFonts.jetBrainsMono(
-                            textStyle: TextStyle(
-                              color: Color(0xFFDBDBDB),
-                              fontSize: 20,
+                        Row(
+                          children: [
+                            IconButton(
+                              tooltip: "Jump To Today",
+                              onPressed: () {
+                                setState(() {
+                                  currentmonth = DateTime.now().month;
+                                  currentyear = DateTime.now().year;
+                                });
+                                loadHabitData(currentmonth, currentyear);
+                              },
+                              icon: Icon(Icons.today, color: Color(0xFFDBDBDB)),
                             ),
+                            IconButton(
+                              tooltip: _showHeatmap
+                                  ? "Back to Habits"
+                                  : "Habit Heatmap",
+                              onPressed: () {
+                                setState(() {
+                                  _showHeatmap = !_showHeatmap;
+                                });
+                              },
+                              icon: Icon(
+                                _showHeatmap ? Icons.close : Icons.grid_on,
+                                color: const Color(0xFFDBDBDB),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Expanded(
+                          child: SizedBox(
+                            height: 48,
+                            child: DragToMoveArea(child: SizedBox.expand()),
                           ),
                         ),
-                        IconButton(
-                          onPressed: () {
-                            getnextmonth();
-                          },
-                          icon: Icon(
-                            Icons.arrow_forward_ios,
-                            color: Color(0xFFDBDBDB),
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (!_showHeatmap)
+                              IconButton(
+                                tooltip: "Edit Month",
+                                onPressed: () {
+                                  showEditHabitMonthDialog(
+                                    context,
+                                    currentmonth,
+                                    currentyear,
+                                    () {
+                                      loadHabitData(currentmonth, currentyear);
+                                    },
+                                  );
+                                },
+                                icon: Icon(
+                                  Icons.edit,
+                                  color: Color(0xFFDBDBDB),
+                                ),
+                              ),
+                            IconButton(
+                              tooltip: "Settings",
+                              onPressed: () {
+                                showSettingsDialog(
+                                  context,
+                                  onDataImported: () {
+                                    loadHabitData(currentmonth, currentyear);
+                                  },
+                                );
+                              },
+                              icon: const Icon(
+                                Icons.settings,
+                                color: Color(0xFFDBDBDB),
+                              ),
+                            ),
+                            Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: Colors.black.withValues(alpha: 0.24),
+                                ),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _buildWindowControl(
+                                      tooltip: 'Minimize',
+                                      icon: Icons.remove_rounded,
+                                      onPressed: () => windowManager.minimize(),
+                                    ),
+                                    _buildWindowControl(
+                                      tooltip: _isMaximized
+                                          ? 'Restore'
+                                          : 'Maximize',
+                                      icon: _isMaximized
+                                          ? Icons.filter_none_rounded
+                                          : Icons.crop_square_rounded,
+                                      onPressed: () => _isMaximized
+                                          ? windowManager.unmaximize()
+                                          : windowManager.maximize(),
+                                    ),
+                                    _buildWindowControl(
+                                      tooltip: 'Close',
+                                      icon: Icons.close_rounded,
+                                      hoverColor: Colors.red,
+                                      onPressed: () => windowManager.close(),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: DragToMoveArea(child: SizedBox.expand()),
-                    ),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (!_showHeatmap)
-                        IconButton(
-                          tooltip: "Edit Month",
-                          onPressed: () {
-                            showEditHabitMonthDialog(
-                              context,
-                              currentmonth,
-                              currentyear,
-                              () {
-                                loadHabitData(currentmonth, currentyear);
-                              },
-                            );
-                          },
-                          icon: Icon(Icons.edit, color: Color(0xFFDBDBDB)),
-                        ),
-                      IconButton(
-                        tooltip: "Settings",
-                        onPressed: () {
-                          showSettingsDialog(
-                            context,
-                            onDataImported: () {
-                              loadHabitData(currentmonth, currentyear);
-                            },
-                          );
-                        },
-                        icon: const Icon(
-                          Icons.settings,
-                          color: Color(0xFFDBDBDB),
-                        ),
-                      ),
-                      Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(color: const Color(0xFFDAD3BE)),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _buildWindowControl(
-                                tooltip: 'Minimize',
-                                icon: Icons.remove_rounded,
-                                onPressed: () => windowManager.minimize(),
-                              ),
-                              _buildWindowControl(
-                                tooltip: _isMaximized ? 'Restore' : 'Maximize',
-                                icon: _isMaximized
-                                    ? Icons.filter_none_rounded
-                                    : Icons.crop_square_rounded,
-                                onPressed: () => _isMaximized
-                                    ? windowManager.unmaximize()
-                                    : windowManager.maximize(),
-                              ),
-                              _buildWindowControl(
-                                tooltip: 'Close',
-                                icon: Icons.close_rounded,
-                                hoverColor: Colors.red,
-                                onPressed: () => windowManager.close(),
-                              ),
-                            ],
+                    if (!_showHeatmap)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            onPressed: getpreviousmonth,
+                            icon: Icon(
+                              Icons.arrow_back_ios,
+                              color: Color(0xFFDBDBDB),
+                            ),
                           ),
-                        ),
+                          Text(
+                            "${months[currentmonth - 1].toUpperCase()} "
+                            "$currentyear",
+                            style: GoogleFonts.jetBrainsMono(
+                              textStyle: TextStyle(
+                                color: Color(0xFFDBDBDB),
+                                fontSize: 20,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: getnextmonth,
+                            icon: Icon(
+                              Icons.arrow_forward_ios,
+                              color: Color(0xFFDBDBDB),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ],
+                  ],
+                ),
               ),
               Expanded(
                 child: _showHeatmap
