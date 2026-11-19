@@ -19,7 +19,8 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    Directory documentsDirectory = await getApplicationDocumentsDirectory();
+    Directory documentsDirectory = await getApplicationSupportDirectory();
+    // C:\Users\<Username>\AppData\Roaming\com.ravish.habit
     String path = join(documentsDirectory.path, 'habit_tracker.db');
     return await openDatabase(path, version: 1, onCreate: _onCreate);
   }
