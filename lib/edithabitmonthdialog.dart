@@ -4,8 +4,8 @@ import 'package:habit_tracker/database_helper.dart';
 
 Future<void> showEditHabitMonthDialog(
   BuildContext context,
-  month,
-  year,
+  int month,
+  int year,
   VoidCallback onDialogClose,
 ) async {
   return showDialog<void>(
@@ -21,14 +21,14 @@ Future<void> showEditHabitMonthDialog(
 }
 
 class EditHabitMonthDialog extends StatefulWidget {
-  final month;
-  final year;
+  final int month;
+  final int year;
   final VoidCallback onDialogClose;
 
   const EditHabitMonthDialog({
     super.key,
-    this.month,
-    this.year,
+    required this.month,
+    required this.year,
     required this.onDialogClose,
   });
 
@@ -38,7 +38,7 @@ class EditHabitMonthDialog extends StatefulWidget {
 
 class _EditHabitMonthDialogState extends State<EditHabitMonthDialog> {
   final habitController = TextEditingController();
-  List habitColumns = [];
+  List<Map<String, dynamic>> habitTypes = [];
   bool _iserror = false;
   bool _isLoading = true;
   final dbHelper = DatabaseHelper();
@@ -62,30 +62,51 @@ class _EditHabitMonthDialogState extends State<EditHabitMonthDialog> {
     loadHabitData(widget.month, widget.year);
   }
 
-  Future<void> loadHabitData(month, year) async {
+  Future<void> loadHabitData(int month, int year) async {
     setState(() {
       _isLoading = true;
     });
-    final data = await dbHelper.getHabitData(month, year);
+    final habits = await dbHelper.getMonthHabits(month, year);
     if (mounted) {
       setState(() {
-        habitColumns = (data['columns'] as List)
-            .skip(1)
-            .map((item) => item['name'])
-            .toList();
+        habitTypes = habits;
         _isLoading = false;
       });
     }
   }
 
-  Future<void> _deletehabitfrommonth(m, y, h) async {
-    await dbHelper.deleteHabitTypeFromTable(m, y, h);
-    loadHabitData(m, y);
+  Future<void> _deleteHabitFromMonth(int month, int year, int habitId) async {
+    await dbHelper.deleteHabitFromMonth(month, year, habitId);
+    await loadHabitData(month, year);
   }
 
-  Future<void> _addhabittomonth(m, y, h) async {
-    await dbHelper.addHabitTypeToTable(m, y, h);
-    loadHabitData(m, y);
+  Future<void> _addHabitToMonth(int month, int year, String habitName) async {
+    await dbHelper.addHabitToMonth(month, year, habitName);
+    await loadHabitData(month, year);
+  }
+
+  Future<void> _submitHabit() async {
+    final habitName = habitController.text.trim().toLowerCase();
+    if (habitName.isEmpty) {
+      setState(() {
+        _iserror = true;
+      });
+      return;
+    }
+
+    await _addHabitToMonth(widget.month, widget.year, habitName);
+    if (mounted) {
+      setState(() {
+        habitController.clear();
+        _iserror = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    habitController.dispose();
+    super.dispose();
   }
 
   @override
@@ -137,23 +158,7 @@ class _EditHabitMonthDialogState extends State<EditHabitMonthDialog> {
                         borderRadius: BorderRadius.circular(3),
                       ),
                     ),
-                    onFieldSubmitted: (value) {
-                      if (value.trim().isEmpty) {
-                        setState(() {
-                          _iserror = true;
-                        });
-                      } else {
-                        _addhabittomonth(
-                          widget.month,
-                          widget.year,
-                          value.toLowerCase(),
-                        );
-                        setState(() {
-                          habitController.text = "";
-                          _iserror = false;
-                        });
-                      }
-                    },
+                    onFieldSubmitted: (_) => _submitHabit(),
                   ),
                 ),
                 SizedBox(width: 10),
@@ -164,23 +169,7 @@ class _EditHabitMonthDialogState extends State<EditHabitMonthDialog> {
                   ),
                   child: IconButton(
                     tooltip: "Add Habit",
-                    onPressed: () {
-                      if (habitController.text.trim().isEmpty) {
-                        setState(() {
-                          _iserror = true;
-                        });
-                      } else {
-                        _addhabittomonth(
-                          widget.month,
-                          widget.year,
-                          habitController.text.toLowerCase(),
-                        );
-                        setState(() {
-                          habitController.text = "";
-                          _iserror = false;
-                        });
-                      }
-                    },
+                    onPressed: _submitHabit,
                     icon: Icon(Icons.add, color: Colors.white),
                   ),
                 ),
@@ -212,9 +201,9 @@ class _EditHabitMonthDialogState extends State<EditHabitMonthDialog> {
               child: _isLoading
                   ? Center(child: CircularProgressIndicator())
                   : ListView.builder(
-                      itemCount: habitColumns.length,
+                      itemCount: habitTypes.length,
                       itemBuilder: (context, index) {
-                        final habitType = habitColumns[index];
+                        final habitType = habitTypes[index];
                         return Padding(
                           padding: const EdgeInsets.all(4.0),
                           child: Container(
@@ -223,15 +212,17 @@ class _EditHabitMonthDialogState extends State<EditHabitMonthDialog> {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: ListTile(
-                              title: Text(habitType.toString().toUpperCase()),
+                              title: Text(
+                                habitType['habit'].toString().toUpperCase(),
+                              ),
                               trailing: IconButton(
                                 tooltip: "Delete Item",
                                 icon: Icon(Icons.delete, color: Colors.red),
                                 onPressed: () {
-                                  _deletehabitfrommonth(
+                                  _deleteHabitFromMonth(
                                     widget.month,
                                     widget.year,
-                                    habitType.toString(),
+                                    habitType['id'] as int,
                                   );
                                 },
                               ),

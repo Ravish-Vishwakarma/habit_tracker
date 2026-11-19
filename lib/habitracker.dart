@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:habit_tracker/createhabitdialog.dart';
 import 'package:habit_tracker/database_helper.dart';
 import 'package:habit_tracker/edithabitmonthdialog.dart';
+import 'package:habit_tracker/habit_heatmap_view.dart';
 
 class HabitTracker extends StatefulWidget {
   const HabitTracker({super.key});
@@ -29,48 +30,30 @@ class _HabitTrackerState extends State<HabitTracker> {
     'november',
     'december',
   ];
-  List<String> habitColumns = [];
+  List<Map<String, dynamic>> habitTypes = [];
   List<Map<String, dynamic>> habitRows = [];
-  bool _tableExists = true;
+  bool _showHeatmap = false;
   final ScrollController _scrollController = ScrollController();
   final dbHelper = DatabaseHelper();
 
-  Future<void> loadHabitData(month, year) async {
-    final data = await dbHelper.getHabitData(month, year);
-    if (mounted) {
-      if (data['columns'].isEmpty) {
-        setState(() {
-          _tableExists = false;
-          habitColumns = [];
-          habitRows = [];
+  Future<void> loadHabitData(int month, int year) async {
+    final habits = await dbHelper.getMonthHabits(month, year);
+    final statuses = await dbHelper.getMonthHabitStatuses(month, year);
+    final daysInMonth = DateTime(year, month + 1, 0).day;
+    if (mounted && month == currentmonth && year == currentyear) {
+      setState(() {
+        habitTypes = habits;
+        habitRows = List.generate(daysInMonth, (index) {
+          final day = index + 1;
+          return {
+            'day': day,
+            for (final habit in habits)
+              (habit['id'] as int).toString():
+                  statuses['${habit['id']}:$day'] ?? 0,
+          };
         });
-      } else {
-        setState(() {
-          _tableExists = true;
-          habitColumns = (data['columns'] as List)
-              .skip(1)
-              .map((item) => item['name'] as String)
-              .toList();
-          habitRows = (data['rows'] as List)
-              .map((row) => Map<String, dynamic>.from(row))
-              .toList();
-        });
-      }
+      });
     }
-  }
-
-  Future<void> createCompleteHabitTable(month, year) async {
-    await dbHelper.createCompleteHabitTable(month, year);
-    setState(() {
-      currentmonth = month;
-      currentyear = year;
-      _tableExists = true;
-    });
-    loadHabitData(month, year);
-  }
-
-  Future<void> updateHabitScore(day, month, year, habit, score) async {
-    await dbHelper.updateHabitScore(day, month, year, habit, score);
   }
 
   @override
@@ -98,68 +81,91 @@ class _HabitTrackerState extends State<HabitTracker> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  IconButton(
-                    tooltip: "Jump To Today",
-                    onPressed: () {
-                      setState(() {
-                        currentmonth = DateTime.now().month;
-                        currentyear = DateTime.now().year;
-                      });
-                      loadHabitData(currentmonth, currentyear);
-                    },
-                    icon: Icon(Icons.today, color: Color(0xFFDBDBDB)),
-                  ),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       IconButton(
+                        tooltip: "Jump To Today",
                         onPressed: () {
-                          getpreviousmonth();
+                          setState(() {
+                            currentmonth = DateTime.now().month;
+                            currentyear = DateTime.now().year;
+                          });
+                          loadHabitData(currentmonth, currentyear);
                         },
-                        icon: Icon(
-                          Icons.arrow_back_ios,
-                          color: Color(0xFFDBDBDB),
-                        ),
-                      ),
-                      Text(
-                        "${months[currentmonth - 1].toUpperCase()} $currentyear",
-                        style: GoogleFonts.jetBrainsMono(
-                          textStyle: TextStyle(
-                            color: Color(0xFFDBDBDB),
-                            fontSize: 20,
-                          ),
-                        ),
+                        icon: Icon(Icons.today, color: Color(0xFFDBDBDB)),
                       ),
                       IconButton(
+                        tooltip: _showHeatmap
+                            ? "Back to Habits"
+                            : "Habit Heatmap",
                         onPressed: () {
-                          getnextmonth();
+                          setState(() {
+                            _showHeatmap = !_showHeatmap;
+                          });
                         },
                         icon: Icon(
-                          Icons.arrow_forward_ios,
-                          color: Color(0xFFDBDBDB),
+                          _showHeatmap ? Icons.close : Icons.grid_on,
+                          color: const Color(0xFFDBDBDB),
                         ),
                       ),
                     ],
                   ),
-                  IconButton(
-                    tooltip: "Edit Month",
-                    onPressed: () {
-                      showEditHabitMonthDialog(
-                        context,
-                        currentmonth,
-                        currentyear,
-                        () {
-                          loadHabitData(currentmonth, currentyear);
-                        },
-                      );
-                    },
-                    icon: Icon(Icons.edit, color: Color(0xFFDBDBDB)),
-                  ),
+                  if (!_showHeatmap)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          onPressed: () {
+                            getpreviousmonth();
+                          },
+                          icon: Icon(
+                            Icons.arrow_back_ios,
+                            color: Color(0xFFDBDBDB),
+                          ),
+                        ),
+                        Text(
+                          "${months[currentmonth - 1].toUpperCase()} $currentyear",
+                          style: GoogleFonts.jetBrainsMono(
+                            textStyle: TextStyle(
+                              color: Color(0xFFDBDBDB),
+                              fontSize: 20,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () {
+                            getnextmonth();
+                          },
+                          icon: Icon(
+                            Icons.arrow_forward_ios,
+                            color: Color(0xFFDBDBDB),
+                          ),
+                        ),
+                      ],
+                    ),
+                  if (!_showHeatmap)
+                    IconButton(
+                      tooltip: "Edit Month",
+                      onPressed: () {
+                        showEditHabitMonthDialog(
+                          context,
+                          currentmonth,
+                          currentyear,
+                          () {
+                            loadHabitData(currentmonth, currentyear);
+                          },
+                        );
+                      },
+                      icon: Icon(Icons.edit, color: Color(0xFFDBDBDB)),
+                    )
+                  else
+                    const SizedBox(width: 48),
                 ],
               ),
               Expanded(
-                child: _tableExists
-                    ? DataTable2(
+                child: _showHeatmap
+                    ? const HabitHeatmapView()
+                    : DataTable2(
                         scrollController: _scrollController,
                         columnSpacing: 12,
                         horizontalMargin: 12,
@@ -171,44 +177,61 @@ class _HabitTrackerState extends State<HabitTracker> {
                               style: TextStyle(color: Colors.white),
                             ),
                           ),
-                          ...habitColumns.map(
-                            (h) => DataColumn(
+                          ...habitTypes.map(
+                            (habit) => DataColumn(
                               label: Text(
-                                h.toString().toUpperCase(),
+                                habit['habit'].toString().toUpperCase(),
                                 style: TextStyle(color: Colors.white),
                               ),
                             ),
                           ),
                         ],
-                        rows: habitRows.map((h) {
-                          final rowIndex = habitRows.indexOf(h);
-
+                        rows: habitRows.asMap().entries.map((entry) {
+                          final rowIndex = entry.key;
+                          final row = entry.value;
                           return DataRow(
-                            cells: h.keys.map((key) {
-                              if (key == 'day') {
-                                return DataCell(
-                                  Text(
-                                    h[key].toString(),
-                                    style: const TextStyle(color: Colors.white),
-                                  ),
-                                );
-                              } else {
+                            cells: [
+                              DataCell(
+                                Text(
+                                  row['day'].toString(),
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                              ),
+                              ...habitTypes.map((habit) {
+                                final habitId = habit['id'] as int;
+                                final habitKey = habitId.toString();
                                 return DataCell(
                                   Checkbox(
-                                    value: h[key] == 1,
-                                    onChanged: (bool? value) {
+                                    value: row[habitKey] == 1,
+                                    onChanged: (bool? value) async {
+                                      if (value == null) return;
+                                      final previousValue = row[habitKey];
                                       setState(() {
-                                        habitRows[rowIndex][key] = value!
-                                            ? 1
-                                            : 0;
+                                        row[habitKey] = value ? 1 : 0;
                                       });
-                                      updateHabitScore(
-                                        rowIndex + 1,
-                                        currentmonth,
-                                        currentyear,
-                                        key,
-                                        value! ? 1 : 0,
-                                      );
+                                      try {
+                                        await dbHelper.updateHabitScore(
+                                          row['day'] as int,
+                                          currentmonth,
+                                          currentyear,
+                                          habitId,
+                                          value ? 1 : 0,
+                                        );
+                                      } catch (error) {
+                                        if (!context.mounted) return;
+                                        setState(() {
+                                          row[habitKey] = previousValue;
+                                        });
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Could not save habit: $error',
+                                            ),
+                                          ),
+                                        );
+                                      }
                                     },
                                     activeColor: Colors.white,
                                     checkColor: Color(0xFF2C3930),
@@ -218,11 +241,12 @@ class _HabitTrackerState extends State<HabitTracker> {
                                     ),
                                   ),
                                 );
-                              }
-                            }).toList(),
+                              }),
+                            ],
                             color: WidgetStateProperty.resolveWith((states) {
                               if (rowIndex == DateTime.now().day - 1 &&
-                                  currentmonth == DateTime.now().month) {
+                                  currentmonth == DateTime.now().month &&
+                                  currentyear == DateTime.now().year) {
                                 return Color(0xFFDAD3BE).withOpacity(0.2);
                               }
                               if (rowIndex % 2 == 0) {
@@ -232,48 +256,6 @@ class _HabitTrackerState extends State<HabitTracker> {
                             }),
                           );
                         }).toList(),
-                      )
-                    : Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'TABLE FOR ${months[currentmonth - 1].toUpperCase()} $currentyear DOES NOT EXIST.',
-                              style: GoogleFonts.jetBrainsMono(
-                                color: Colors.white,
-                                fontSize: 16,
-                              ),
-                            ),
-                            SizedBox(height: 20),
-                            ElevatedButton(
-                              onPressed: () {
-                                createCompleteHabitTable(
-                                  currentmonth,
-                                  currentyear,
-                                );
-                              },
-                              child: Text(
-                                '+ Create Table',
-                                style: GoogleFonts.jetBrainsMono(
-                                  color: Colors.white,
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Color.fromARGB(
-                                  255,
-                                  34,
-                                  44,
-                                  38,
-                                ), // button color
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    4,
-                                  ), // rounded corners
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
               ),
             ],
@@ -283,7 +265,10 @@ class _HabitTrackerState extends State<HabitTracker> {
       floatingActionButton: FloatingActionButton.small(
         tooltip: "Edit Global Habit",
         onPressed: () {
-          showAddHabitDialog(context);
+          showAddHabitDialog(
+            context,
+            onChanged: () => loadHabitData(currentmonth, currentyear),
+          );
         },
         backgroundColor: Color(0xFFDAD3BE),
         child: const Icon(Icons.add),
@@ -292,6 +277,8 @@ class _HabitTrackerState extends State<HabitTracker> {
   }
 
   getpreviousmonth() {
+    late int month;
+    late int year;
     setState(() {
       if (currentmonth != 1) {
         currentmonth -= 1;
@@ -299,20 +286,25 @@ class _HabitTrackerState extends State<HabitTracker> {
         currentmonth = 12;
         currentyear -= 1;
       }
-      loadHabitData(currentmonth, currentyear);
+      month = currentmonth;
+      year = currentyear;
     });
+    loadHabitData(month, year);
   }
 
   getnextmonth() {
+    late int month;
+    late int year;
     setState(() {
       if (currentmonth != 12) {
         currentmonth += 1;
-      }
-      else {
+      } else {
         currentmonth = 1;
         currentyear += 1;
       }
-      loadHabitData(currentmonth, currentyear);
+      month = currentmonth;
+      year = currentyear;
     });
+    loadHabitData(month, year);
   }
 }

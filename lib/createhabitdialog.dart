@@ -2,16 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:habit_tracker/database_helper.dart';
 
-Future<void> showAddHabitDialog(BuildContext context) async {
+Future<void> showAddHabitDialog(
+  BuildContext context, {
+  VoidCallback? onChanged,
+}) async {
   return showDialog<void>(
     context: context,
     builder: (context) {
-      return _AddHabitDialogContent();
+      return _AddHabitDialogContent(onChanged: onChanged);
     },
   );
 }
 
 class _AddHabitDialogContent extends StatefulWidget {
+  final VoidCallback? onChanged;
+
+  const _AddHabitDialogContent({this.onChanged});
+
   @override
   __AddHabitDialogContentState createState() => __AddHabitDialogContentState();
 }
@@ -49,12 +56,14 @@ class __AddHabitDialogContentState extends State<_AddHabitDialogContent> {
 
   Future<void> _deleteHabitType(int id) async {
     await dbHelper.deleteHabitType(id);
-    _fetchHabitTypes();
+    await _fetchHabitTypes();
+    widget.onChanged?.call();
   }
 
   Future<void> _addHabitType(String title) async {
     await dbHelper.addHabitType(title);
-    _fetchHabitTypes();
+    await _fetchHabitTypes();
+    widget.onChanged?.call();
   }
 
   @override

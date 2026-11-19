@@ -1,9 +1,6 @@
-import 'dart:async';
 import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:path_provider/path_provider.dart';
-import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -19,159 +16,370 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    Directory documentsDirectory = await getApplicationSupportDirectory();
-    // C:\Users\<Username>\AppData\Roaming\com.ravish.habit
-    String path = join(documentsDirectory.path, 'habit_tracker.db');
-    return await openDatabase(path, version: 1, onCreate: _onCreate);
+    final documentsDirectory = await getApplicationSupportDirectory();
+    final path = join(documentsDirectory.path, 'habit_tracker.db');
+    return openDatabase(
+      path,
+      version: 4,
+      onCreate: (db, version) async {
+        await _createHabitTables(db);
+        await _createMonthHabitTables(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await _createMonthHabitTables(db);
+        } else if (oldVersion < 3) {
+          await db.execute(
+            'ALTER TABLE habit_months ADD COLUMN is_customized '
+            'INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldVersion < 4) {
+          await db.execute(
+            'ALTER TABLE habits ADD COLUMN is_global '
+            'INTEGER NOT NULL DEFAULT 1',
+          );
+        }
+      },
+    );
   }
 
-  Future _onCreate(Database db, int version) async {
+  Future<void> _createHabitTables(DatabaseExecutor db) async {
     await db.execute('''
-    CREATE TABLE habits (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      habit TEXT NOT NULL UNIQUE,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )
-  ''');
-
-    await db.execute('''
-    CREATE TABLE habits_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      habit_id INTEGER NOT NULL,
-      date TEXT NOT NULL,
-      status INTEGER NOT NULL DEFAULT 0,
-
-      FOREIGN KEY (habit_id) REFERENCES habits(id),
-      UNIQUE (habit_id, date)
-    )
-  ''');
-  }
-
-  Future<void> createHabitTable(int month, int year) async {
-    final db = await database;
-    final m = _getMonthName(month);
-    final tableName = '$m$year';
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS $tableName (
-        day INTEGER UNIQUE
+      CREATE TABLE habits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        habit TEXT NOT NULL UNIQUE,
+        is_global INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     ''');
-    final daysInMonth = DateTime(year, month + 1, 0).day;
-    for (int i = 1; i <= daysInMonth; i++) {
-      await db.rawInsert('INSERT OR IGNORE INTO $tableName (day) VALUES (?)', [
-        i,
-      ]);
-    }
+    await db.execute('''
+      CREATE TABLE habits_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        habit_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        status INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (habit_id) REFERENCES habits(id),
+        UNIQUE (habit_id, date)
+      )
+    ''');
+  }
+
+  Future<void> _createMonthHabitTables(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS habit_months (
+        month INTEGER NOT NULL,
+        year INTEGER NOT NULL,
+        is_customized INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (month, year)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS month_habits (
+        month INTEGER NOT NULL,
+        year INTEGER NOT NULL,
+        habit_id INTEGER NOT NULL,
+        PRIMARY KEY (month, year, habit_id)
+      )
+    ''');
   }
 
   Future<List<Map<String, dynamic>>> getHabitTypes() async {
     final db = await database;
-    return await db.query('habits');
+    return db.query('habits', where: 'is_global = 1', orderBy: 'id');
   }
 
   Future<int> addHabitType(String habitName) async {
     final db = await database;
-    return await db.insert('habits', {
-      'habit': habitName,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    return db.transaction((txn) async {
+      final id = await txn.insert('habits', {
+        'habit': habitName,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      await txn.update(
+        'habits',
+        {'is_global': 1},
+        where: 'habit = ?',
+        whereArgs: [habitName],
+      );
+      return id;
+    });
   }
 
   Future<int> deleteHabitType(int id) async {
     final db = await database;
-    return await db.delete('habits', where: 'id = ?', whereArgs: [id]);
+    return db.transaction((txn) async {
+      await txn.rawDelete(
+        '''
+        DELETE FROM month_habits
+        WHERE habit_id = ?
+          AND EXISTS (
+            SELECT 1
+            FROM habit_months
+            WHERE habit_months.month = month_habits.month
+              AND habit_months.year = month_habits.year
+              AND habit_months.is_customized = 0
+          )
+        ''',
+        [id],
+      );
+      return txn.update(
+        'habits',
+        {'is_global': 0},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
   }
 
-  Future<Map<String, dynamic>> getHabitData(int month, int year) async {
+  Future<List<Map<String, dynamic>>> getMonthHabits(int month, int year) async {
     final db = await database;
-    final m = _getMonthName(month);
-    final tableName = '$m$year';
+    await _ensureMonthHabits(db, month, year);
+    return db.rawQuery(
+      '''
+      SELECT habits.id, habits.habit
+      FROM month_habits
+      INNER JOIN habits ON habits.id = month_habits.habit_id
+      WHERE month_habits.month = ? AND month_habits.year = ?
+      ORDER BY habits.id
+      ''',
+      [month, year],
+    );
+  }
 
-    try {
-      final columns = await db.rawQuery('PRAGMA table_info($tableName)');
-      final rows = await db.query(tableName);
-      return {'columns': columns, 'rows': rows};
-    } catch (e) {
-      if (kDebugMode) {
-        print(e);
-      }
-      return {'columns': [], 'rows': []};
-    }
+  Future<Map<String, int>> getMonthHabitStatuses(int month, int year) async {
+    final db = await database;
+    final startDate = _formatDate(year, month, 1);
+    final endDate = _formatDate(year, month, DateTime(year, month + 1, 0).day);
+    final logs = await db.query(
+      'habits_logs',
+      columns: ['habit_id', 'date', 'status'],
+      where: 'date >= ? AND date <= ?',
+      whereArgs: [startDate, endDate],
+    );
+
+    return {
+      for (final log in logs)
+        '${log['habit_id']}:${int.parse((log['date'] as String).substring(8, 10))}':
+            log['status'] as int,
+    };
+  }
+
+  Future<Map<String, List<Map<String, dynamic>>>> getYearHabitActivity(
+    int year,
+  ) async {
+    final db = await database;
+    final startDate = _formatDate(year, 1, 1);
+    final endDate = _formatDate(year, 12, 31);
+    final habits = await db.rawQuery(
+      '''
+      SELECT id, habit
+      FROM habits
+      WHERE is_global = 1
+         OR id IN (
+           SELECT habit_id FROM month_habits WHERE year = ?
+         )
+         OR id IN (
+           SELECT habit_id FROM habits_logs
+           WHERE date >= ? AND date <= ? AND status > 0
+         )
+      ORDER BY id
+      ''',
+      [year, startDate, endDate],
+    );
+    final logs = await db.query(
+      'habits_logs',
+      columns: ['habit_id', 'date'],
+      where: 'date >= ? AND date <= ? AND status > 0',
+      whereArgs: [startDate, endDate],
+    );
+    return {'habits': habits, 'logs': logs};
   }
 
   Future<void> updateHabitScore(
     int day,
     int month,
     int year,
-    String habit,
+    int habitId,
     int score,
   ) async {
     final db = await database;
-    final m = _getMonthName(month);
-    final tableName = '$m$year';
-    await db.update(
-      tableName,
-      {'"$habit"': score},
-      where: 'day = ?',
-      whereArgs: [day],
-    );
+    final date = _formatDate(year, month, day);
+    if (score == 0) {
+      await db.delete(
+        'habits_logs',
+        where: 'habit_id = ? AND date = ?',
+        whereArgs: [habitId, date],
+      );
+      return;
+    }
+
+    await db.insert('habits_logs', {
+      'habit_id': habitId,
+      'date': date,
+      'status': score,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<void> addHabitTypeToTable(int month, int year, String habit) async {
+  Future<void> addHabitToMonth(int month, int year, String habitName) async {
     final db = await database;
-    final m = _getMonthName(month);
-    final tableName = '$m$year';
-    await db.execute(
-      'ALTER TABLE $tableName ADD COLUMN "$habit" INTEGER DEFAULT 0',
+    await _ensureMonthHabits(db, month, year);
+    await db.transaction((txn) async {
+      await txn.insert('habits', {
+        'habit': habitName,
+        'is_global': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      final habits = await txn.query(
+        'habits',
+        columns: ['id'],
+        where: 'habit = ?',
+        whereArgs: [habitName],
+        limit: 1,
+      );
+      final habitId = habits.single['id'] as int;
+      await txn.insert('month_habits', {
+        'month': month,
+        'year': year,
+        'habit_id': habitId,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      await txn.update(
+        'habit_months',
+        {'is_customized': 1},
+        where: 'month = ? AND year = ?',
+        whereArgs: [month, year],
+      );
+    });
+  }
+
+  Future<void> deleteHabitFromMonth(int month, int year, int habitId) async {
+    final db = await database;
+    await db.delete(
+      'month_habits',
+      where: 'month = ? AND year = ? AND habit_id = ?',
+      whereArgs: [month, year, habitId],
+    );
+    await db.update(
+      'habit_months',
+      {'is_customized': 1},
+      where: 'month = ? AND year = ?',
+      whereArgs: [month, year],
     );
   }
 
-  Future<void> deleteHabitTypeFromTable(
+  Future<void> _ensureMonthHabits(Database db, int month, int year) async {
+    await db.transaction((txn) async {
+      final configuredMonth = await txn.query(
+        'habit_months',
+        columns: ['is_customized'],
+        where: 'month = ? AND year = ?',
+        whereArgs: [month, year],
+        limit: 1,
+      );
+      if (configuredMonth.isNotEmpty) {
+        if (configuredMonth.single['is_customized'] == 0) {
+          final habits = await txn.query(
+            'habits',
+            columns: ['id'],
+            where: 'is_global = 1',
+          );
+          for (final habit in habits) {
+            await txn.insert('month_habits', {
+              'month': month,
+              'year': year,
+              'habit_id': habit['id'],
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+          }
+        }
+        return;
+      }
+
+      final legacyTable = '${_getMonthName(month)}$year';
+      final legacyTables = await txn.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        [legacyTable],
+      );
+      var legacyHabits = <String>[];
+      if (legacyTables.isNotEmpty) {
+        final columns = await txn.rawQuery('PRAGMA table_info("$legacyTable")');
+        legacyHabits = columns
+            .map((column) => column['name'] as String)
+            .where((name) => name != 'day')
+            .toList();
+      }
+
+      await txn.insert('habit_months', {
+        'month': month,
+        'year': year,
+        'is_customized': legacyHabits.isNotEmpty ? 1 : 0,
+      });
+
+      if (legacyHabits.isNotEmpty) {
+        await _importLegacyMonth(txn, legacyTable, month, year, legacyHabits);
+      } else {
+        final habits = await txn.query(
+          'habits',
+          columns: ['id'],
+          where: 'is_global = 1',
+        );
+        for (final habit in habits) {
+          await txn.insert('month_habits', {
+            'month': month,
+            'year': year,
+            'habit_id': habit['id'],
+          });
+        }
+      }
+    });
+  }
+
+  Future<void> _importLegacyMonth(
+    Transaction txn,
+    String tableName,
     int month,
     int year,
-    String habit,
+    List<String> habitNames,
   ) async {
-    final db = await database;
-    final m = _getMonthName(month);
-    final tableName = '$m$year';
+    final habitIds = <String, int>{};
+    for (final habitName in habitNames) {
+      await txn.insert('habits', {
+        'habit': habitName,
+        'is_global': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      final rows = await txn.query(
+        'habits',
+        columns: ['id'],
+        where: 'habit = ?',
+        whereArgs: [habitName],
+        limit: 1,
+      );
+      final habitId = rows.single['id'] as int;
+      habitIds[habitName] = habitId;
+      await txn.insert('month_habits', {
+        'month': month,
+        'year': year,
+        'habit_id': habitId,
+      });
+    }
 
-    // SQLite doesn't support DROP COLUMN directly in all versions.
-    // The recommended way is to create a new table and copy the data.
-
-    // 1. Get the list of columns to keep
-    final columns = await db.rawQuery('PRAGMA table_info($tableName)');
-    final columnsToKeep = columns.where((col) => col['name'] != habit).toList();
-    final columnNames = columnsToKeep
-        .map((col) => col['name'] as String)
-        .join(', ');
-
-    // 2. Create a new table
-    final newTableName = '${tableName}_new';
-    final columnDefs = columnsToKeep
-        .map((col) {
-          return '${col['name']} ${col['type']}';
-        })
-        .join(', ');
-
-    await db.execute('CREATE TABLE $newTableName ($columnDefs)');
-
-    // 3. Copy the data
-    await db.execute(
-      'INSERT INTO $newTableName ($columnNames) SELECT $columnNames FROM $tableName',
-    );
-
-    // 4. Drop the old table
-    await db.execute('DROP TABLE $tableName');
-
-    // 5. Rename the new table
-    await db.execute('ALTER TABLE $newTableName RENAME TO $tableName');
+    final rows = await txn.query(tableName);
+    for (final row in rows) {
+      final day = row['day'] as int;
+      for (final habitName in habitNames) {
+        final status = row[habitName];
+        if (status is num && status != 0) {
+          await txn.insert('habits_logs', {
+            'habit_id': habitIds[habitName],
+            'date': _formatDate(year, month, day),
+            'status': status.toInt(),
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      }
+    }
   }
 
-  Future<void> createCompleteHabitTable(int month, int year) async {
-    await createHabitTable(month, year);
-    final habitTypes = await getHabitTypes();
-    for (var habitType in habitTypes) {
-      await addHabitTypeToTable(month, year, habitType['habit'] as String);
-    }
+  String _formatDate(int year, int month, int day) {
+    return '${year.toString().padLeft(4, '0')}-'
+        '${month.toString().padLeft(2, '0')}-'
+        '${day.toString().padLeft(2, '0')}';
   }
 
   String _getMonthName(int month) {
