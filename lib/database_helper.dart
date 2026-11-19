@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -193,6 +196,88 @@ class DatabaseHelper {
       whereArgs: [startDate, endDate],
     );
     return {'habits': habits, 'logs': logs};
+  }
+
+  Future<Uint8List> exportDatabase() async {
+    final db = await database;
+    final databasePath = db.path;
+    await db.close();
+    _database = null;
+    try {
+      return await File(databasePath).readAsBytes();
+    } finally {
+      await database;
+    }
+  }
+
+  Future<void> importDatabase(String backupPath) async {
+    final backupFile = File(backupPath);
+    if (!await backupFile.exists()) {
+      throw FileSystemException('Backup file does not exist', backupPath);
+    }
+
+    final db = await database;
+    final databasePath = db.path;
+    if (backupFile.absolute.path == File(databasePath).absolute.path) return;
+
+    final backupDb = await openDatabase(
+      backupPath,
+      readOnly: true,
+      singleInstance: false,
+    );
+    try {
+      final tables = await backupDb.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+      );
+      final tableNames = tables.map((table) => table['name']).toSet();
+      if (!tableNames.contains('habits') ||
+          !tableNames.contains('habits_logs')) {
+        throw const FormatException('This is not a Habit Tracker backup.');
+      }
+
+      final habitColumns = await backupDb.rawQuery('PRAGMA table_info(habits)');
+      final logColumns = await backupDb.rawQuery(
+        'PRAGMA table_info(habits_logs)',
+      );
+      final habitColumnNames = habitColumns
+          .map((column) => column['name'])
+          .toSet();
+      final logColumnNames = logColumns.map((column) => column['name']).toSet();
+      if (!habitColumnNames.containsAll(['id', 'habit']) ||
+          !logColumnNames.containsAll(['habit_id', 'date', 'status'])) {
+        throw const FormatException('The backup database is incomplete.');
+      }
+    } finally {
+      await backupDb.close();
+    }
+
+    await db.close();
+    _database = null;
+    final timestamp = DateTime.now().microsecondsSinceEpoch;
+    final temporaryFile = File('$databasePath.import.$timestamp');
+    final previousFile = File('$databasePath.previous.$timestamp');
+    final currentFile = File(databasePath);
+
+    try {
+      await backupFile.copy(temporaryFile.path);
+      await currentFile.rename(previousFile.path);
+      await temporaryFile.rename(databasePath);
+      await previousFile.delete();
+    } catch (_) {
+      if (!await currentFile.exists() && await previousFile.exists()) {
+        await previousFile.rename(databasePath);
+      }
+      rethrow;
+    } finally {
+      _database = null;
+      try {
+        await database;
+      } finally {
+        if (await temporaryFile.exists()) {
+          await temporaryFile.delete();
+        }
+      }
+    }
   }
 
   Future<void> updateHabitScore(

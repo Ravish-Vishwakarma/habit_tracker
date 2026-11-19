@@ -5,6 +5,8 @@ import 'package:habit_tracker/createhabitdialog.dart';
 import 'package:habit_tracker/database_helper.dart';
 import 'package:habit_tracker/edithabitmonthdialog.dart';
 import 'package:habit_tracker/habit_heatmap_view.dart';
+import 'package:habit_tracker/settings_dialog.dart';
+import 'package:window_manager/window_manager.dart';
 
 class HabitTracker extends StatefulWidget {
   const HabitTracker({super.key});
@@ -13,7 +15,7 @@ class HabitTracker extends StatefulWidget {
   State<HabitTracker> createState() => _HabitTrackerState();
 }
 
-class _HabitTrackerState extends State<HabitTracker> {
+class _HabitTrackerState extends State<HabitTracker> with WindowListener {
   var currentmonth = DateTime.now().month;
   var currentyear = DateTime.now().year;
   var months = [
@@ -33,6 +35,7 @@ class _HabitTrackerState extends State<HabitTracker> {
   List<Map<String, dynamic>> habitTypes = [];
   List<Map<String, dynamic>> habitRows = [];
   bool _showHeatmap = false;
+  bool _isMaximized = false;
   final ScrollController _scrollController = ScrollController();
   final dbHelper = DatabaseHelper();
 
@@ -59,11 +62,41 @@ class _HabitTrackerState extends State<HabitTracker> {
   @override
   void initState() {
     super.initState();
+    windowManager.addListener(this);
+    _loadWindowState();
     loadHabitData(currentmonth, currentyear);
+  }
+
+  Future<void> _loadWindowState() async {
+    final isMaximized = await windowManager.isMaximized();
+    if (mounted) {
+      setState(() {
+        _isMaximized = isMaximized;
+      });
+    }
+  }
+
+  @override
+  void onWindowMaximize() {
+    if (mounted) {
+      setState(() {
+        _isMaximized = true;
+      });
+    }
+  }
+
+  @override
+  void onWindowUnmaximize() {
+    if (mounted) {
+      setState(() {
+        _isMaximized = false;
+      });
+    }
   }
 
   @override
   void dispose() {
+    windowManager.removeListener(this);
     _scrollController.dispose();
     super.dispose();
   }
@@ -79,7 +112,6 @@ class _HabitTrackerState extends State<HabitTracker> {
           child: Column(
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
                     children: [
@@ -109,6 +141,12 @@ class _HabitTrackerState extends State<HabitTracker> {
                         ),
                       ),
                     ],
+                  ),
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: DragToMoveArea(child: SizedBox.expand()),
+                    ),
                   ),
                   if (!_showHeatmap)
                     Row(
@@ -143,23 +181,81 @@ class _HabitTrackerState extends State<HabitTracker> {
                         ),
                       ],
                     ),
-                  if (!_showHeatmap)
-                    IconButton(
-                      tooltip: "Edit Month",
-                      onPressed: () {
-                        showEditHabitMonthDialog(
-                          context,
-                          currentmonth,
-                          currentyear,
-                          () {
-                            loadHabitData(currentmonth, currentyear);
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: DragToMoveArea(child: SizedBox.expand()),
+                    ),
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (!_showHeatmap)
+                        IconButton(
+                          tooltip: "Edit Month",
+                          onPressed: () {
+                            showEditHabitMonthDialog(
+                              context,
+                              currentmonth,
+                              currentyear,
+                              () {
+                                loadHabitData(currentmonth, currentyear);
+                              },
+                            );
                           },
-                        );
-                      },
-                      icon: Icon(Icons.edit, color: Color(0xFFDBDBDB)),
-                    )
-                  else
-                    const SizedBox(width: 48),
+                          icon: Icon(Icons.edit, color: Color(0xFFDBDBDB)),
+                        ),
+                      IconButton(
+                        tooltip: "Settings",
+                        onPressed: () {
+                          showSettingsDialog(
+                            context,
+                            onDataImported: () {
+                              loadHabitData(currentmonth, currentyear);
+                            },
+                          );
+                        },
+                        icon: const Icon(
+                          Icons.settings,
+                          color: Color(0xFFDBDBDB),
+                        ),
+                      ),
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: const Color(0xFFDAD3BE)),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildWindowControl(
+                                tooltip: 'Minimize',
+                                icon: Icons.remove_rounded,
+                                onPressed: () => windowManager.minimize(),
+                              ),
+                              _buildWindowControl(
+                                tooltip: _isMaximized ? 'Restore' : 'Maximize',
+                                icon: _isMaximized
+                                    ? Icons.filter_none_rounded
+                                    : Icons.crop_square_rounded,
+                                onPressed: () => _isMaximized
+                                    ? windowManager.unmaximize()
+                                    : windowManager.maximize(),
+                              ),
+                              _buildWindowControl(
+                                tooltip: 'Close',
+                                icon: Icons.close_rounded,
+                                hoverColor: Colors.red,
+                                onPressed: () => windowManager.close(),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
               Expanded(
@@ -306,5 +402,26 @@ class _HabitTrackerState extends State<HabitTracker> {
       year = currentyear;
     });
     loadHabitData(month, year);
+  }
+
+  Widget _buildWindowControl({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onPressed,
+    Color hoverColor = const Color(0xFF3F4D43),
+  }) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18, weight: 700),
+      style: IconButton.styleFrom(
+        fixedSize: const Size(32, 32),
+        padding: EdgeInsets.zero,
+        foregroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
+        hoverColor: hoverColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      ),
+    );
   }
 }
